@@ -1,4 +1,4 @@
-const CACHE='media-recipe-calculator-v3';
+const CACHE='media-recipe-calculator-v4';
 const ASSETS=['./','./index.html','./manifest.json','./app-icon.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS))));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key))))));
