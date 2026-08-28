@@ -7,5 +7,12 @@
   "scope": "./",
   "display": "standalone",
   "background_color": "#f4f9fd",
-  "theme_color": "#0d85e0"
+  "theme_color": "#004D9A",
+  "icons": [
+    {
+      "src": "app-icon.png",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
 }
