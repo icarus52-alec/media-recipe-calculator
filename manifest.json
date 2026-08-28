@@ -1,0 +1,11 @@
+{
+  "name": "培養基配方庫",
+  "short_name": "配方庫",
+  "description": "快速儲存、搜尋並依目標容量換算培養基配方。",
+  "lang": "zh-Hant",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f9fd",
+  "theme_color": "#0d85e0"
+}
