@@ -60,7 +60,7 @@
     function loadPreferences(){try{return JSON.parse(localStorage.getItem(PREFERENCES_KEY))||{}}catch{return{}}}
     function savePreferences(){localStorage.setItem(PREFERENCES_KEY,JSON.stringify(preferences))}
     function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify(state));saveListeners.forEach(listener=>listener(structuredClone(state)))}
-    function setOwnerMode(enabled){ownerMode=!!enabled;['topAdd','emptyAdd','editBtn','duplicateBtn','deleteBtn','importBtn'].forEach(id=>$(id).hidden=!ownerMode);$('importFile').disabled=!ownerMode}
+    function setOwnerMode(enabled){ownerMode=!!enabled;['topAdd','emptyAdd','editBtn','duplicateBtn','deleteBtn','exportBtn','importBtn'].forEach(id=>$(id).hidden=!ownerMode);$('importFile').disabled=!ownerMode}
     function uid(){return crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2)}
     function esc(v=''){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
     function b(zh,en){return language==='zh'?zh:en}
