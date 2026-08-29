@@ -1,8 +1,8 @@
 {
-  "name": "培養基配方庫 / Culture Media Recipes",
-  "short_name": "配方庫 Recipes",
-  "description": "快速儲存、搜尋並換算培養基配方。 Save, search, and scale culture media recipes.",
-  "lang": "zh-Hant",
+  "name": "Culture Media Recipe Library",
+  "short_name": "Media Recipes",
+  "description": "Save, search, sync, and scale culture media recipes.",
+  "lang": "en",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
