@@ -10,6 +10,13 @@ let status = 'signed-out';
 
 const configured = ['apiKey', 'authDomain', 'projectId', 'appId'].every(key => String(config[key] || '').trim());
 const text = (zh, en) => bridge.t(zh, en);
+const serialize = value => JSON.stringify(value, (_, item) => {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+  return Object.keys(item).sort().reduce((sorted, key) => {
+    sorted[key] = item[key];
+    return sorted;
+  }, {});
+});
 const stateText = () => {
   if (!configured) return [text('尚未設定同步', 'Sync setup needed'), text('本機資料仍可正常使用；完成 Firebase 設定後即可登入同步。', 'Local data still works. Complete Firebase setup to enable sign-in and sync.')];
   if (status === 'syncing') return [text('同步中…', 'Syncing…'), text('正在同步你的配方。', 'Syncing your recipes.')];
@@ -96,10 +103,10 @@ async function startFirebase() {
         ready = true;
         status = 'signed-in';
         renderStatus();
-        if (!remote || JSON.stringify(combined) !== JSON.stringify(remote)) await upload(combined, userDoc, firestoreApi);
+        if (!remote || serialize(combined) !== serialize(remote)) await upload(combined, userDoc, firestoreApi);
         return;
       }
-      if (remote && JSON.stringify(remote) !== JSON.stringify(bridge.getState())) bridge.replaceState(remote);
+      if (remote && serialize(remote) !== serialize(bridge.getState())) bridge.replaceState(remote);
       status = 'signed-in';
       renderStatus();
     }, error => {
@@ -111,7 +118,7 @@ async function startFirebase() {
 
   async function upload(nextState, target = firestoreApi.doc(db, 'users', currentUser.uid), api = firestoreApi) {
     if (!currentUser) return;
-    const serialized = JSON.stringify(nextState);
+    const serialized = serialize(nextState);
     if (serialized === lastUploaded) return;
     status = 'syncing';
     renderStatus();
