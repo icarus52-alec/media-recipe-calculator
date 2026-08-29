@@ -1,14 +1,16 @@
 const bridge = window.mediaRecipeSyncBridge;
 const config = window.MEDIA_RECIPE_FIREBASE_CONFIG || {};
 const syncButton = document.getElementById('syncButton');
+const ownerUid = String(config.ownerUid || '');
 let currentUser = null;
-let unsubscribe = null;
+let isOwner = false;
+let masterExists = false;
 let ready = false;
 let uploadTimer = null;
 let lastUploaded = '';
-let status = 'signed-out';
+let status = 'read-only';
 
-const configured = ['apiKey', 'authDomain', 'projectId', 'appId'].every(key => String(config[key] || '').trim());
+const configured = ['apiKey', 'authDomain', 'projectId', 'appId', 'ownerUid'].every(key => String(config[key] || '').trim());
 const text = (zh, en) => bridge.t(zh, en);
 const serialize = value => JSON.stringify(value, (_, item) => {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
@@ -18,22 +20,23 @@ const serialize = value => JSON.stringify(value, (_, item) => {
   }, {});
 });
 const stateText = () => {
-  if (!configured) return [text('尚未設定同步', 'Sync setup needed'), text('本機資料仍可正常使用；完成 Firebase 設定後即可登入同步。', 'Local data still works. Complete Firebase setup to enable sign-in and sync.')];
-  if (status === 'syncing') return [text('同步中…', 'Syncing…'), text('正在同步你的配方。', 'Syncing your recipes.')];
-  if (status === 'signed-in') return [text('已同步', 'Synced'), text(`已使用 ${currentUser?.email || ''} 自動同步。`, `Automatically syncing as ${currentUser?.email || ''}.`)];
-  if (status === 'error') return [text('同步錯誤', 'Sync error'), text('目前保留在本機，稍後可再次嘗試同步。', 'Your data remains on this device. Try syncing again later.')];
-  return [text('登入同步', 'Sign in to sync'), text('資料儲存在此瀏覽器；登入後可跨裝置自動同步。', 'Data is stored in this browser. Sign in to sync it across devices.')];
+  if (!configured) return [text('尚未設定配方庫', 'Library setup needed'), text('本機資料仍可正常使用。', 'Local data still works.')];
+  if (status === 'syncing') return [text('同步中…', 'Syncing…'), text('正在更新公開主配方庫。', 'Updating the public master library.')];
+  if (status === 'owner') return [text('管理者已同步', 'Owner synced'), text(`管理者：${currentUser?.email || ''}`, `Owner: ${currentUser?.email || ''}`)];
+  if (status === 'error') return [text('連線錯誤', 'Connection error'), text('目前顯示裝置中最後保存的配方。', 'Showing the last recipes saved on this device.')];
+  return [text('管理者登入', 'Owner sign-in'), text('唯讀模式：可使用換算，但只有管理者能修改配方。', 'Read-only: calculations are available, but only the owner can edit recipes.')];
 };
 function renderStatus() {
   const [label, note] = stateText();
   bridge.setStatus(status, label, note);
 }
 bridge.refreshLanguage = renderStatus;
+bridge.setOwnerMode(false);
 
 if (!configured) {
   status = 'setup';
   renderStatus();
-  syncButton.onclick = () => alert(text('Firebase 尚未完成設定。請先依照設定說明建立免費專案。', 'Firebase setup is not complete yet. Create the free project first.'));
+  syncButton.onclick = () => alert(text('Firebase 尚未完成設定。', 'Firebase setup is not complete yet.'));
 } else {
   startFirebase().catch(error => {
     console.error(error);
@@ -52,11 +55,12 @@ async function startFirebase() {
   const app = initializeApp(config);
   const auth = authApi.getAuth(app);
   const db = firestoreApi.getFirestore(app);
+  const masterDoc = firestoreApi.doc(db, 'libraries', 'master');
   await authApi.setPersistence(auth, authApi.browserLocalPersistence);
 
   syncButton.onclick = async () => {
-    if (currentUser) {
-      if (confirm(text(`要登出 ${currentUser.email} 嗎？`, `Sign out of ${currentUser.email}?`))) await authApi.signOut(auth);
+    if (isOwner) {
+      if (confirm(text(`要登出管理帳號 ${currentUser.email} 嗎？`, `Sign out of the owner account ${currentUser.email}?`))) await authApi.signOut(auth);
       return;
     }
     try {
@@ -73,74 +77,81 @@ async function startFirebase() {
   };
 
   bridge.onSave(nextState => {
-    if (!currentUser || !ready) return;
+    if (!isOwner || !ready) return;
     clearTimeout(uploadTimer);
     uploadTimer = setTimeout(() => upload(nextState), 700);
   });
 
-  authApi.onAuthStateChanged(auth, user => {
+  firestoreApi.onSnapshot(masterDoc, { includeMetadataChanges: true }, snapshot => {
+    if (snapshot.metadata.hasPendingWrites) return;
+    masterExists = snapshot.exists();
+    if (masterExists) {
+      const remote = snapshot.data().state;
+      if (remote && serialize(remote) !== serialize(bridge.getState())) bridge.replaceState(remote);
+      if (remote) lastUploaded = serialize(remote);
+    }
+    ready = isOwner;
+    status = isOwner ? 'owner' : 'read-only';
+    renderStatus();
+  }, error => {
+    console.error(error);
+    status = 'error';
+    renderStatus();
+  });
+
+  authApi.onAuthStateChanged(auth, async user => {
     currentUser = user;
-    ready = false;
-    if (unsubscribe) unsubscribe();
-    unsubscribe = null;
-    if (!user) {
-      status = 'signed-out';
+    isOwner = user?.uid === ownerUid;
+    bridge.setOwnerMode(isOwner);
+    if (user && !isOwner) {
+      bridge.toast(text('此帳號沒有配方編輯權限', 'This account does not have permission to edit recipes'));
+      await authApi.signOut(auth);
+      return;
+    }
+    if (!isOwner) {
+      ready = false;
+      status = 'read-only';
+      renderStatus();
+      return;
+    }
+    ready = true;
+    status = 'syncing';
+    renderStatus();
+    if (!masterExists) {
+      const legacyDoc = firestoreApi.doc(db, 'users', ownerUid);
+      try {
+        const legacySnapshot = await firestoreApi.getDoc(legacyDoc);
+        const legacyState = legacySnapshot.exists() ? legacySnapshot.data().state : null;
+        if (legacyState?.recipes?.length) bridge.replaceState(legacyState);
+      } catch (error) {
+        console.warn('Legacy recipe migration was skipped.', error);
+      }
+      await upload(bridge.getState());
+    } else {
+      status = 'owner';
+      renderStatus();
+    }
+  });
+
+  async function upload(nextState) {
+    if (!isOwner) return;
+    const serialized = serialize(nextState);
+    if (serialized === lastUploaded) {
+      status = 'owner';
       renderStatus();
       return;
     }
     status = 'syncing';
     renderStatus();
-    const userDoc = firestoreApi.doc(db, 'users', user.uid);
-    let firstSnapshot = true;
-    unsubscribe = firestoreApi.onSnapshot(userDoc, { includeMetadataChanges: true }, async snapshot => {
-      if (snapshot.metadata.hasPendingWrites) return;
-      const remote = snapshot.exists() ? snapshot.data().state : null;
-      if (firstSnapshot) {
-        firstSnapshot = false;
-        const local = bridge.getState();
-        const combined = remote ? mergeStates(local, remote) : local;
-        bridge.replaceState(combined);
-        ready = true;
-        status = 'signed-in';
-        renderStatus();
-        if (!remote || serialize(combined) !== serialize(remote)) await upload(combined, userDoc, firestoreApi);
-        return;
-      }
-      if (remote && serialize(remote) !== serialize(bridge.getState())) bridge.replaceState(remote);
-      status = 'signed-in';
-      renderStatus();
-    }, error => {
-      console.error(error);
-      status = 'error';
-      renderStatus();
-    });
-  });
-
-  async function upload(nextState, target = firestoreApi.doc(db, 'users', currentUser.uid), api = firestoreApi) {
-    if (!currentUser) return;
-    const serialized = serialize(nextState);
-    if (serialized === lastUploaded) return;
-    status = 'syncing';
-    renderStatus();
     try {
-      await api.setDoc(target, { state: nextState, updatedAt: api.serverTimestamp() });
+      await firestoreApi.setDoc(masterDoc, { state: nextState, ownerUid, updatedAt: firestoreApi.serverTimestamp() });
       lastUploaded = serialized;
-      status = 'signed-in';
+      masterExists = true;
+      status = 'owner';
     } catch (error) {
       console.error(error);
       status = 'error';
     }
     renderStatus();
   }
-}
-
-function mergeStates(local, remote) {
-  if (!local?.recipes?.length) return remote;
-  if (!remote?.recipes?.length) return local;
-  const recipes = new Map(remote.recipes.map(recipe => [recipe.id, recipe]));
-  for (const recipe of local.recipes) {
-    const cloudRecipe = recipes.get(recipe.id);
-    if (!cloudRecipe || Date.parse(recipe.updatedAt || 0) > Date.parse(cloudRecipe.updatedAt || 0)) recipes.set(recipe.id, recipe);
-  }
-  return { ...remote, ...local, recipes: [...recipes.values()] };
 }

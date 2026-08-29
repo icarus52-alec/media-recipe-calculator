@@ -7,5 +7,6 @@ window.MEDIA_RECIPE_FIREBASE_CONFIG = {
   storageBucket: 'media-recipe-calculator-6610c.firebasestorage.app',
   messagingSenderId: '800005201608',
   appId: '1:800005201608:web:f7905c6ff10bf4bbca8ffd',
-  measurementId: 'G-JNEH447FYQ'
+  measurementId: 'G-JNEH447FYQ',
+  ownerUid: 'ljJlyQ360cPg3kVzxngvHsm2Kco1'
 };
